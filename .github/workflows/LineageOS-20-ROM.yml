@@ -1,0 +1,209 @@
+name: LineageOS 20 [ROM]
+
+# ============================================================================
+# ROM 构建（LineageOS 20 / Android 13）— 面向优学派 P709 (k71v1_64_bsp)
+#
+# ⚠️ 重要（务必先读 README）：
+#   - LineageOS 20 全量源码 ~100GB，构建产物再 +50GB，单次 3~6 小时。
+#   - GitHub **托管** runner(ubuntu-24.04) 磁盘仅 14GB(清理后约 50GB) -> 放不下，
+#     会在 repo sync / 构建中途 ENOSPC。故默认面向 **self-hosted** runner。
+#   - 用下面的 RUNNER 输入切换：self-hosted（推荐）或 ubuntu-24.04（大概率失败）。
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      RUNNER:
+        description: 'runner 标签（self-hosted 或 ubuntu-24.04）'
+        required: true
+        default: 'self-hosted'
+      MANIFEST_URL:
+        description: 'ROM manifest 仓库'
+        required: true
+        default: 'https://github.com/LineageOS/android.git'
+      MANIFEST_BRANCH:
+        description: 'ROM 分支'
+        required: true
+        default: 'lineage-20.0'
+      DEVICE_TREE_URL:
+        description: '设备树仓库（ROM 用）'
+        required: true
+        default: 'https://github.com/mmbsmm-git/android_device_youxuepai_k71v1_64_bsp_rom.git'
+      DEVICE_TREE_BRANCH:
+        description: '设备树分支'
+        required: true
+        default: 'main'
+      DEVICE_PATH:
+        description: '设备树路径'
+        required: true
+        default: 'device/youxuepai/k71v1_64_bsp'
+      VENDOR_TREE_URL:
+        description: 'vendor blobs 仓库（无则留空）'
+        required: false
+        default: ''
+      VENDOR_TREE_BRANCH:
+        description: 'vendor 仓库分支'
+        required: false
+        default: 'main'
+      VENDOR_PATH:
+        description: 'vendor 路径'
+        required: false
+        default: 'vendor/youxuepai'
+      DEVICE_NAME:
+        description: '设备代号'
+        required: true
+        default: 'k71v1_64_bsp'
+      LUNCH:
+        description: 'lunch 名称（不含 -variant）'
+        required: true
+        default: 'lineage_k71v1_64_bsp'
+      BUILD_VARIANT:
+        description: '构建变体'
+        required: true
+        default: 'userdebug'
+      BUILD_TARGET:
+        description: '构建目标（bacon=整包ROM, systemimage, bootimage...）'
+        required: true
+        default: 'bacon'
+      CCACHE:
+        description: '启用 ccache(1/0)'
+        required: false
+        default: '1'
+      SYNC_ONLY:
+        description: '只同步源码不构建(1/0，首次同步用)'
+        required: false
+        default: '0'
+
+env:
+  # 源码持久化目录（self-hosted 下可保留以加速二次构建；托管 runner 每次都是空的）
+  SRC_DIR: lineage
+
+jobs:
+  build:
+    name: 构建 ROM
+    runs-on: ${{ github.event.inputs.RUNNER }}
+    timeout-minutes: 720
+    steps:
+
+    - name: 显示环境信息
+      run: |
+        echo "== 环境 =="
+        echo "RUNNER      : ${{ github.event.inputs.RUNNER }}"
+        echo "MANIFEST    : ${{ github.event.inputs.MANIFEST_URL }} @ ${{ github.event.inputs.MANIFEST_BRANCH }}"
+        echo "DEVICE_TREE : ${{ github.event.inputs.DEVICE_TREE_URL }} @ ${{ github.event.inputs.DEVICE_TREE_BRANCH }}"
+        echo "DEVICE_PATH : ${{ github.event.inputs.DEVICE_PATH }}"
+        echo "LUNCH       : ${{ github.event.inputs.LUNCH }}-${{ github.event.inputs.BUILD_VARIANT }}"
+        echo "TARGET      : ${{ github.event.inputs.BUILD_TARGET }}"
+        echo "== 磁盘 =="
+        df -h || true
+        echo "== CPU/内存 =="
+        nproc; free -h || true
+
+    - name: 检出仓库
+      uses: actions/checkout@v4
+
+    - name: 系统依赖
+      run: |
+        set -e
+        sudo apt-get update -y
+        sudo apt-get install -y --no-install-recommends \
+          git git-lfs curl wget python3 python-is-python3 rsync bc bison build-essential \
+          ccache flex g++-multilib gcc-multilib gnupg gperf imagemagick lib32ncurses-dev \
+          lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev \
+          libxml2 libxml2-utils lzop pngcrush schedtool squashfs-tools xsltproc zip zlib1g-dev \
+          unzip fontconfig libncurses5 || sudo apt-get install -y git git-lfs curl wget python3
+        git lfs install || true
+        sudo apt-get install -y --no-install-recommends repo || true
+        if ! command -v repo >/dev/null 2>&1; then
+          sudo curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo
+          sudo chmod a+x /usr/local/bin/repo
+        fi
+        git config --global user.name "lazy-rom-builder"
+        git config --global user.email "lazy-rom-builder@local"
+        git config --global color.ui false
+
+    - name: 释放磁盘（托管 runner 用；self-hosted 可忽略）
+      if: ${{ github.event.inputs.RUNNER != 'self-hosted' }}
+      uses: rokibhasansagar/slimhub_actions@main
+      with:
+        retain: "docker_buildkit,docker_imgcache"
+      continue-on-error: true
+
+    - name: 设置交换空间
+      if: ${{ github.event.inputs.RUNNER != 'self-hosted' }}
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 16
+      continue-on-error: true
+
+    - name: 初始化并同步源码
+      run: |
+        set -e
+        export CCACHE_DIR="${GITHUB_WORKSPACE}/.ccache"
+        mkdir -p "$SRC_DIR"
+        cd "$SRC_DIR"
+        if [ ! -d ".repo" ]; then
+          repo init --depth=1 -u "${{ github.event.inputs.MANIFEST_URL }}" -b "${{ github.event.inputs.MANIFEST_BRANCH }}" --git-lfs
+        else
+          echo "已有 .repo，跳过 init"
+        fi
+        echo "== repo sync (可能数十分钟~数小时) =="
+        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+    - name: 放入设备树 + vendor
+      run: |
+        set -e
+        cd "$SRC_DIR"
+        rm -rf "${{ github.event.inputs.DEVICE_PATH }}"
+        git clone "${{ github.event.inputs.DEVICE_TREE_URL }}" -b "${{ github.event.inputs.DEVICE_TREE_BRANCH }}" "${{ github.event.inputs.DEVICE_PATH }}"
+        if [ -n "${{ github.event.inputs.VENDOR_TREE_URL }}" ]; then
+          rm -rf "${{ github.event.inputs.VENDOR_PATH }}/${{ github.event.inputs.DEVICE_NAME }}"
+          mkdir -p "${{ github.event.inputs.VENDOR_PATH }}"
+          git clone "${{ github.event.inputs.VENDOR_TREE_URL }}" -b "${{ github.event.inputs.VENDOR_TREE_BRANCH }}" "${{ github.event.inputs.VENDOR_PATH }}/${{ github.event.inputs.DEVICE_NAME }}"
+        fi
+        ls -la "${{ github.event.inputs.DEVICE_PATH }}"
+
+    - name: 仅同步模式（不构建）
+      if: ${{ github.event.inputs.SYNC_ONLY == '1' }}
+      run: |
+        echo "SYNC_ONLY=1 -> 结束（源码已就位）"
+        du -sh "$SRC_DIR" || true
+
+    - name: 构建 ROM
+      if: ${{ github.event.inputs.SYNC_ONLY != '1' }}
+      run: |
+        set -e
+        cd "$SRC_DIR"
+        export CCACHE_DIR="${GITHUB_WORKSPACE}/.ccache"
+        export CCACHE_EXEC=$(command -v ccache || true)
+        export USE_CCACHE=${{ github.event.inputs.CCACHE }}
+        export LC_ALL=C
+        if [ "$USE_CCACHE" = "1" ]; then
+          ccache -M 50G || true
+          ccache -z || true
+        fi
+        source build/envsetup.sh
+        lunch "${{ github.event.inputs.LUNCH }}-${{ github.event.inputs.BUILD_VARIANT }}"
+        echo "== mka ${{ github.event.inputs.BUILD_TARGET }} =="
+        mka "${{ github.event.inputs.BUILD_TARGET }}" -j$(nproc --all)
+        echo "=== BUILD FINISHED ==="
+        ls -la "out/target/product/${{ github.event.inputs.DEVICE_NAME }}/" || true
+
+    - name: 上传产物到 Release
+      if: ${{ github.event.inputs.SYNC_ONLY != '1' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ${{ env.SRC_DIR }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
+          ${{ env.SRC_DIR }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.img
+        name: ${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}
+        tag_name: rom-${{ github.run_id }}
+        body: |
+          ROM: ${{ github.event.inputs.MANIFEST_BRANCH }}
+          Device: ${{ github.event.inputs.DEVICE_NAME }}
+          Lunch: ${{ github.event.inputs.LUNCH }}-${{ github.event.inputs.BUILD_VARIANT }}
+          Target: ${{ github.event.inputs.BUILD_TARGET }}
+          TREE: ${{ github.event.inputs.DEVICE_TREE_URL }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
