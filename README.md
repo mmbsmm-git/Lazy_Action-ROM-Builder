@@ -22,13 +22,17 @@ LineageOS 20（A13）全量源码 ~70GB + 编译产物 ~50GB ≈ **120GB**。
 > 让托管 runner 尽量多挤出空间——**但 LOS20 仍很可能不够**。若只想先验证流程，
 > 可把 `BUILD_TARGET` 设为 `systemimage`（产物更小），或先用 `SYNC_ONLY=1` 看同步能不能过。
 
-### 没有自己的机器怎么办（三个可行方向）
+### 没有自己的机器怎么办（可行方向）
 
 | 方案 | 说明 | 代价 |
 |---|---|---|
-| **A. 免费云 VM 当 self-hosted runner**（推荐）| 如 Oracle Cloud 免费 ARM（4核/24GB/200GB 盘）。**你仍然在 GitHub Actions 界面点"Run workflow"**，只是任务跑在这台云机上。一次配置，长期用。 | 需注册云账号 + 一次性装 runner |
-| **B. 付费 GitHub 大 runner** | Settings → Actions → Larger runners，磁盘 150GB+ | 花钱 |
-| **C. 不编 ROM，改"GSI 魔改"** | 下载现成 A13 GSI（本机实测能跑）→ 托管 runner 里解包/改/重打包（几 GB，托管完全够） | 只能做应用/主题/overlay 级魔改，动不了 framework 深层 |
+| **D. 移动硬盘 Linux + 容器编译**（**无需银行卡**）| 用移动硬盘启动 Fedora → 用 Podman/Docker 跑 `ubuntu:20.04` 容器编译（Fedora 不被 AOSP 支持，容器绕过）。**详见 [`docs/BUILD-FEDORA.md`](docs/BUILD-FEDORA.md) + [`local/rom.sh`](local/rom.sh)** | 需移动硬盘 ≥200GB；周末跑；慢（6~12h/次）|
+| **A. 免费云 VM 当 self-hosted runner** | 如 Oracle Cloud 免费 ARM。**你仍在 Actions 里点 Run workflow**，任务跑在云机。 | **注册要银行卡/实名** |
+| **B. 付费 GitHub 大 runner** | 磁盘 150GB+ | 花钱（$0.012~0.082/分钟）+ 需 Organization |
+| **C. 不编 ROM，改"GSI 魔改"** | 下载现成 A13 GSI → 托管 runner 里解包/改/重打包（几 GB，托管够用）| 只能做应用/主题/overlay 级魔改，**动不了 framework 深层** |
+
+> **推荐（无银行卡场景）**：先做 **C**（当天见效），同时用 **D** 铺真 ROM（能改 framework → MD3E 才有戏）。
+
 
 
 ---
