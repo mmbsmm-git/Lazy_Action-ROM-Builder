@@ -122,18 +122,24 @@ jobs:
         git config --global user.email "lazy-rom-builder@local"
         git config --global color.ui false
 
-    - name: 释放磁盘（托管 runner 用；self-hosted 可忽略）
+    - name: 释放/扩容磁盘（托管 runner 用；self-hosted 跳过）
       if: ${{ github.event.inputs.RUNNER != 'self-hosted' }}
-      uses: rokibhasansagar/slimhub_actions@main
+      uses: easimon/maximize-build-space@master
       with:
-        retain: "docker_buildkit,docker_imgcache"
+        # 把 runner 额外卷挂到 workspace，释放预装软件，尽量凑出 ~60-70GB
+        root-reserve-mb: 8192
+        swap-size-mb: 16384
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        remove-docker-images: 'true'
       continue-on-error: true
 
-    - name: 设置交换空间
-      if: ${{ github.event.inputs.RUNNER != 'self-hosted' }}
-      uses: pierotofy/set-swap-space@master
-      with:
-        swap-size-gb: 16
+    - name: 报告磁盘
+      run: |
+        echo "== 清理后磁盘 =="; df -h / /mnt /home 2>/dev/null || df -h
+        echo "== 可用总空间(GB) =="; df --output=avail -BG / | tail -1
       continue-on-error: true
 
     - name: 初始化并同步源码

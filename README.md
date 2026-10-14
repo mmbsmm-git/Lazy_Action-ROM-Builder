@@ -8,18 +8,28 @@
 
 ---
 
-## ⚠️ 先读：为什么默认用 self-hosted runner
+## ⚠️ 先读：磁盘现实（务必看）
 
-| 项目 | 托管 runner (ubuntu-24.04) | LineageOS 20 实际需要 |
+LineageOS 20（A13）全量源码 ~70GB + 编译产物 ~50GB ≈ **120GB**。
+
+| runner | 可用磁盘 | 能否编 LOS20 |
 |---|---|---|
-| 磁盘 | ~14 GB（清理后 ~50 GB）| **~150 GB**（源码 ~100 GB + 产物 ~50 GB）|
-| 单次时限 | 6 小时 | **3~6 小时**（首次同步另计）|
-| 结果 | **会 ENOSPC 失败** | — |
+| GitHub **托管** (ubuntu-24.04) | ~14GB（`maximize-build-space` 清理后 ~60–70GB）| **基本不能**（大概率 ENOSPC）|
+| GitHub **付费大 runner** | 150GB+ | 可以（收费）|
+| **self-hosted**（自己的 Linux / 免费云 VM）| 你说了算（≥200GB）| **可以（推荐）**|
 
-**结论**：全量 ROM 构建在 GitHub 托管 runner 上基本跑不起来。所以本 workflow 默认
-`RUNNER=self-hosted` —— 跑在**你自己的 Linux 机器 / WSL2** 上（磁盘 ≥200GB、内存 ≥16GB）。
+> 本 workflow 已内置 `easimon/maximize-build-space`（抢回磁盘）+ `--depth=1` 浅同步，
+> 让托管 runner 尽量多挤出空间——**但 LOS20 仍很可能不够**。若只想先验证流程，
+> 可把 `BUILD_TARGET` 设为 `systemimage`（产物更小），或先用 `SYNC_ONLY=1` 看同步能不能过。
 
-若坚持托管 runner，把 `RUNNER` 填 `ubuntu-24.04` 即可（能跑多久算多久，大概率失败）。
+### 没有自己的机器怎么办（三个可行方向）
+
+| 方案 | 说明 | 代价 |
+|---|---|---|
+| **A. 免费云 VM 当 self-hosted runner**（推荐）| 如 Oracle Cloud 免费 ARM（4核/24GB/200GB 盘）。**你仍然在 GitHub Actions 界面点"Run workflow"**，只是任务跑在这台云机上。一次配置，长期用。 | 需注册云账号 + 一次性装 runner |
+| **B. 付费 GitHub 大 runner** | Settings → Actions → Larger runners，磁盘 150GB+ | 花钱 |
+| **C. 不编 ROM，改"GSI 魔改"** | 下载现成 A13 GSI（本机实测能跑）→ 托管 runner 里解包/改/重打包（几 GB，托管完全够） | 只能做应用/主题/overlay 级魔改，动不了 framework 深层 |
+
 
 ---
 
