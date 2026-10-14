@@ -81,6 +81,25 @@ export ROM_DEVICE_TREE=~ /path/to/android_device_youxuepai_k71v1_64_bsp_rom
 ./rom.sh shell
 ```
 
+### 提取 vendor blobs（必须做，只需一次）
+
+ROM 需要厂商专有文件。用**原厂镜像**离线提取（不用连手机）：
+
+```bash
+# 1) 宿主上把 ext4 镜像挂成 dump 目录（需要 sudo）
+sudo ./extract-from-images.sh /path/to/system.bin /path/to/vendor.bin   # 默认挂到 /mnt/p709dump
+
+# 2) 在容器里跑提取（生成 blobs 到 /lineage/vendor/youxuepai/k71v1_64_bsp）
+ROM_DUMP=/mnt/p709dump ./rom.sh extract
+
+# 3) 用完卸载
+sudo umount /mnt/p709dump/system /mnt/p709dump/vendor
+```
+
+> `proprietary-files.txt` 会按它去 dump 里取文件。仓库里现带的是**参考树(Atom)的起步清单**，
+> 提取时会报"某些文件找不到"——**按报错把本机实际存在的路径补进 `proprietary-files.txt`** 即可。
+> 提取完成后，`vendor/youxuepai/k71v1_64_bsp` 就是你的 blobs 仓库（可单独推 Git，供 Action 用）。
+
 产物在：`$ROM_HD/lineage/out/target/product/k71v1_64_bsp/`
 
 ---

@@ -140,6 +140,29 @@ cmd_build() {
     '
 }
 
+cmd_extract() {
+  need_dirs
+  local dump="${ROM_DUMP:-}"
+  if [ -z "$dump" ]; then
+    echo "[错误] 需要指定挂载了原厂 system/vendor 的目录:"
+    echo "        sudo ./local\extract-from-images.sh /path/system.bin /path/vendor.bin /mnt/p709dump"
+    echo "        ROM_DUMP=/mnt/p709dump ./rom.sh extract"
+    exit 1
+  fi
+  "$ENGINE" run --rm -it "${SECOPT[@]}" "${MOUNTS[@]}" -v "${dump}:/dump:ro" \
+    -e DEVICE_PATH="$DEVICE_PATH" -e DEVICE_NAME="$DEVICE_NAME" \
+    "$IMAGE_NAME" bash -lc '
+      set -e
+      cd /lineage
+      [ -d "$DEVICE_PATH" ] || { echo "[错误] 设备树不在 $DEVICE_PATH（先跑 ./rom.sh sync 并克隆设备树）"; exit 1; }
+      cd "$DEVICE_PATH"
+      chmod +x ./extract-files.sh ./setup-makefiles.sh || true
+      ./extract-files.sh /dump
+      echo "=== EXTRACT DONE ==="
+      echo "blobs 已生成到 /lineage/vendor/youxuepai/$DEVICE_NAME"
+    '
+}
+
 cmd_shell() {
   need_dirs
   echo "[进入容器] 源码目录 /lineage, ccache /ccache"
@@ -147,9 +170,10 @@ cmd_shell() {
 }
 
 case "${1:-}" in
-  image) cmd_image ;;
-  sync)  cmd_sync ;;
-  build) shift || true; cmd_build "${1:-bacon}" ;;
-  shell) cmd_shell ;;
-  *) sed -n '2,20p' "$0"; exit 1 ;;
+  image)   cmd_image ;;
+  sync)    cmd_sync ;;
+  build)   shift || true; cmd_build "${1:-bacon}" ;;
+  extract) cmd_extract ;;
+  shell)   cmd_shell ;;
+  *) sed -n '2,22p' "$0"; exit 1 ;;
 esac
